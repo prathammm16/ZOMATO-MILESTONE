@@ -39,17 +39,29 @@ def _parse_optional_int(key: str) -> int | None:
     return int(raw)
 
 
+def _is_railway() -> bool:
+    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+
+
 def _default_hf_max_rows() -> int | None:
     configured = _parse_optional_int("HF_MAX_ROWS")
     if configured is not None:
         return configured
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
-        # Full HF ingest (~51k rows) often OOMs on small Railway instances.
-        return 20_000
+    if _is_railway():
+        # ~512MB Railway plans OOM on full 51k ingest + pandas + HF libs.
+        return 5_000
     return None
 
 
 HF_MAX_ROWS: int | None = _default_hf_max_rows()
+
+# Skip bulky per-row HF metadata on Railway (saves significant RAM).
+INGEST_STRIP_METADATA: bool = (
+    _env_or_secret("INGEST_STRIP_METADATA", "true" if _is_railway() else "false") or "false"
+).lower() in ("1", "true", "yes")
+
+# Prefer committed bootstrap cache on Railway (no HF download).
+RAILWAY_BOOTSTRAP_CACHE: Path = PROJECT_ROOT / "data" / "railway_bootstrap.parquet"
 DATA_CACHE_PATH: Path = PROJECT_ROOT / (
     _env_or_secret("DATA_CACHE_PATH", "data/cache.parquet") or "data/cache.parquet"
 )

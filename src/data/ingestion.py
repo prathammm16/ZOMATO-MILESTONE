@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import gc
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -199,8 +200,15 @@ def assign_budget_tiers(costs: list[float | None]) -> list[BudgetTier]:
 
 def normalize_rows(
     rows: Iterator[dict[str, Any]],
+    *,
+    include_raw_metadata: bool | None = None,
 ) -> tuple[list[Restaurant], IngestionStats]:
     """Map raw HF rows to Restaurant models; drop invalid rows."""
+    keep_metadata = (
+        settings.INGEST_STRIP_METADATA is False
+        if include_raw_metadata is None
+        else include_raw_metadata
+    )
     total = 0
     kept: list[Restaurant] = []
     drop_reasons: dict[str, int] = {}
@@ -230,28 +238,27 @@ def normalize_rows(
         cost = _parse_cost(_first_present(row, COST_KEYS))
         cuisines = _parse_cuisines(_first_present(row, CUISINE_KEYS))
 
-        metadata = {
-            k: v
-            for k, v in row.items()
-            if k
-            not in set(NAME_KEYS + LOCATION_KEYS + CUISINE_KEYS + COST_KEYS + RATING_KEYS)
-            and v is not None
+        item: dict[str, Any] = {
+            "id": _restaurant_id(name, city, row_index),
+            "name": name,
+            "location": city,
+            "locality": locality,
+            "cuisines": cuisines,
+            "cost": cost,
+            "rating": rating,
         }
-        if locality:
-            metadata["locality"] = locality
-
-        parsed.append(
-            {
-                "id": _restaurant_id(name, city, row_index),
-                "name": name,
-                "location": city,
-                "locality": locality,
-                "cuisines": cuisines,
-                "cost": cost,
-                "rating": rating,
-                "raw_metadata": metadata,
+        if keep_metadata:
+            metadata = {
+                k: v
+                for k, v in row.items()
+                if k
+                not in set(NAME_KEYS + LOCATION_KEYS + CUISINE_KEYS + COST_KEYS + RATING_KEYS)
+                and v is not None
             }
-        )
+            if locality:
+                metadata["locality"] = locality
+            item["raw_metadata"] = metadata
+        parsed.append(item)
 
     tiers = assign_budget_tiers([p["cost"] for p in parsed])
     tier_counts: dict[str, int] = {t.value: 0 for t in BudgetTier}
@@ -268,7 +275,7 @@ def normalize_rows(
                 cost=item["cost"],
                 budget_tier=tier,
                 rating=item["rating"],
-                raw_metadata=item["raw_metadata"],
+                raw_metadata=item.get("raw_metadata", {}),
             )
         )
 
@@ -332,7 +339,9 @@ def load_raw_dataset(
 
 def load_from_huggingface(dataset_id: str | None = None) -> tuple[list[Restaurant], IngestionStats]:
     rows = iter_raw_dataset(dataset_id, max_rows=settings.HF_MAX_ROWS)
-    return normalize_rows(rows)
+    restaurants, stats = normalize_rows(rows)
+    gc.collect()
+    return restaurants, stats
 
 
 def save_cache(restaurants: list[Restaurant], path: Path | None = None) -> Path:
@@ -341,6 +350,11 @@ def save_cache(restaurants: list[Restaurant], path: Path | None = None) -> Path:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     records = [r.model_dump(mode="json") for r in restaurants]
     frame = pd.DataFrame(records)
+    if "raw_metadata" in frame.columns:
+        # Parquet cannot store empty struct columns; serialize as JSON string.
+        frame["raw_metadata"] = frame["raw_metadata"].apply(
+            lambda value: json.dumps(value) if isinstance(value, dict) else json.dumps({})
+        )
     frame.to_parquet(cache_path, index=False)
     logger.info("Wrote cache to %s (%s rows)", cache_path, len(restaurants))
     return cache_path
@@ -379,17 +393,28 @@ def ingest(
     """
     refresh = settings.FORCE_REFRESH if force_refresh is None else force_refresh
 
+    cache_candidates: list[Path] = []
+    if settings.DATA_CACHE_PATH.exists():
+        cache_candidates.append(settings.DATA_CACHE_PATH)
+    if (
+        settings.RAILWAY_BOOTSTRAP_CACHE.exists()
+        and settings.RAILWAY_BOOTSTRAP_CACHE not in cache_candidates
+    ):
+        cache_candidates.append(settings.RAILWAY_BOOTSTRAP_CACHE)
+
     if use_cache and not refresh:
-        cached = load_from_cache()
-        if cached:
-            stats = IngestionStats(
-                total_rows=len(cached),
-                kept_rows=len(cached),
-                dropped_rows=0,
-                unique_locations=len({r.location for r in cached}),
-                source="cache",
-            )
-            return cached, stats
+        for cache_path in cache_candidates:
+            cached = load_from_cache(cache_path)
+            if cached:
+                stats = IngestionStats(
+                    total_rows=len(cached),
+                    kept_rows=len(cached),
+                    dropped_rows=0,
+                    unique_locations=len({r.location for r in cached}),
+                    source=f"cache:{cache_path.name}",
+                )
+                logger.info("Using cache %s (%s restaurants)", cache_path, len(cached))
+                return cached, stats
 
     restaurants, stats = load_from_huggingface()
     if not restaurants:
@@ -397,4 +422,5 @@ def ingest(
             "No valid restaurants after ingestion. Check dataset schema or network."
         )
     save_cache(restaurants)
+    gc.collect()
     return restaurants, stats

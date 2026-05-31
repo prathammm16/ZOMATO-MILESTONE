@@ -1,5 +1,6 @@
 [build]
 builder = "NIXPACKS"
+buildCommand = "pip install -r requirements-railway.txt"
 
 [deploy]
 startCommand = "python scripts/railway_start.py"

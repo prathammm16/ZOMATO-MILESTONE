@@ -8,6 +8,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 data/cache.parquet
+!data/railway_bootstrap.parquet
 *.egg-info/
 dist/
 build/

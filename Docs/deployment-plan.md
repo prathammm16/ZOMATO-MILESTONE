@@ -156,7 +156,8 @@ In Railway → **Variables**, add:
 |----------|----------|-------------------|
 | `GROQ_API_KEY` | **Yes** | `gsk_xxxxxxxxxxxxxxxx` |
 | `HF_TOKEN` | Recommended | Hugging Face token — faster downloads, fewer rate limits |
-| `HF_MAX_ROWS` | No | `20000` on Railway auto-default; set `0` or empty locally for full dataset |
+| `HF_MAX_ROWS` | No | `8000` on Railway auto-default; lower to `5000` if still OOM |
+| `INGEST_STRIP_METADATA` | No | `true` on Railway (saves RAM) |
 | `GROQ_MODEL` | No | `llama-3.3-70b-versatile` |
 | `GROQ_TIMEOUT_SECONDS` | No | `30` |
 | `GROQ_TEMPERATURE` | No | `0.3` |
@@ -189,7 +190,20 @@ Reference: [.env.example](../.env.example)
 
 > **Note:** First deploy may take **2–5+ minutes** while the Hugging Face dataset downloads and the store loads on startup.
 
-### 2.5 Optional — persist dataset cache on Railway
+### 2.5 Optional — pre-built bootstrap cache (best for OOM)
+
+Build once on your machine and commit to GitHub so Railway **never downloads HF** on deploy:
+
+```bash
+python scripts/build_railway_cache.py
+git add data/railway_bootstrap.parquet
+git commit -m "Add Railway bootstrap dataset cache"
+git push
+```
+
+Railway loads `data/railway_bootstrap.parquet` automatically when present.
+
+### 2.6 Optional — persist dataset cache on Railway
 
 Without a volume, each redeploy re-downloads the dataset. To speed restarts:
 
@@ -367,7 +381,7 @@ Or use Makefile shortcuts: `make api-server`, `make react-vite`.
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Railway build fails | Missing `requirements.txt` or wrong root dir | Deploy from repo root, not `frontend/` |
-| Railway crash after 2–3 min (HF logs) | OOM loading full dataset | Auto-limited to 20k rows on Railway; add `HF_TOKEN`; mount `/app/data` volume |
+| Railway crash after 2–3 min (HF logs) | OOM loading dataset | Use committed `data/railway_bootstrap.parquet`; set `HF_MAX_ROWS=5000`; upgrade RAM |
 | Railway crash on startup | OOM during HF download | Add volume; set `HF_MAX_ROWS=20000`; add `HF_TOKEN`; upgrade plan |
 | `ModuleNotFoundError: src` | `PYTHONPATH` not set | Set `PYTHONPATH=.` on Railway |
 | `'$PORT' is not a valid integer` | Shell did not expand `$PORT` | Use `python scripts/railway_start.py` as start command |
