@@ -127,7 +127,7 @@ In the Railway service → **Settings**:
 | Setting | Value |
 |---------|-------|
 | **Root Directory** | *(leave empty — repo root)* |
-| **Start Command** | `uvicorn src.api.server:app --host 0.0.0.0 --port $PORT` |
+| **Start Command** | `python scripts/railway_start.py` |
 
 Add a **variable** (or use Railway’s default):
 
@@ -142,7 +142,7 @@ Optional `railway.toml` at repo root (commit if you want config in git):
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "uvicorn src.api.server:app --host 0.0.0.0 --port $PORT"
+startCommand = "python scripts/railway_start.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
@@ -367,6 +367,7 @@ Or use Makefile shortcuts: `make api-server`, `make react-vite`.
 | Railway build fails | Missing `requirements.txt` or wrong root dir | Deploy from repo root, not `frontend/` |
 | Railway crash on startup | OOM during HF download | Add volume; upgrade plan; wait and retry |
 | `ModuleNotFoundError: src` | `PYTHONPATH` not set | Set `PYTHONPATH=.` on Railway |
+| `'$PORT' is not a valid integer` | Shell did not expand `$PORT` | Use `python scripts/railway_start.py` as start command |
 | Vercel UI loads but API errors | Wrong or missing `VITE_API_BASE_URL` | Set env to Railway URL; redeploy Vercel |
 | CORS error in browser | Backend not reachable or wrong URL | Check Railway domain; CORS is `*` in server |
 | Frontend calls `127.0.0.1:8000` in prod | `VITE_API_BASE_URL` not set at build | Add env on Vercel → **Redeploy** |

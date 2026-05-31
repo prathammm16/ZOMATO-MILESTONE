@@ -37,7 +37,7 @@ api-server:
 	uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 api-server-railway:
-	uvicorn src.api.server:app --host 0.0.0.0 --port $${PORT:-8000}
+	python scripts/railway_start.py
 
 api:
 	python -m src.api --location Bangalore --budget medium
