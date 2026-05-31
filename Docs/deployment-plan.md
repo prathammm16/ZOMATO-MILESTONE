@@ -10,7 +10,7 @@
 | Item | Value |
 |------|-------|
 | **Target platform** | [Streamlit Community Cloud](https://streamlit.io/cloud) |
-| **App entry point** | `src/ui/app.py` |
+| **App entry point** | `streamlit_app.py` (Cloud default) or `src/ui/app.py` |
 | **Python version** | 3.10+ (recommended: **3.12**, matches `Dockerfile`) |
 | **Dependencies** | Root `requirements.txt` |
 | **Required secret** | `GROQ_API_KEY` |
@@ -101,7 +101,7 @@ Before deploying, confirm:
 2. Select:
    - **Repository:** your GitHub repo
    - **Branch:** `main` (or your default branch)
-   - **Main file path:** `src/ui/app.py`
+   - **Main file path:** `streamlit_app.py` (or `src/ui/app.py`)
 3. Click **Advanced settings** (optional but recommended):
    - **Python version:** `3.12`
 4. Click **Deploy**.
