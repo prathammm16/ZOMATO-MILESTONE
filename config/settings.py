@@ -65,3 +65,13 @@ LLM_TEMPERATURE = GROQ_TEMPERATURE
 MAX_CANDIDATES_TO_LLM: int = int(_env_or_secret("MAX_CANDIDATES_TO_LLM") or "20")
 TOP_RECOMMENDATIONS: int = int(_env_or_secret("TOP_RECOMMENDATIONS") or "5")
 MAX_FIELD_CHARS: int = int(_env_or_secret("MAX_FIELD_CHARS") or "120")
+
+
+def _parse_cors_origins(raw: str | None) -> list[str]:
+    if not raw or raw.strip() == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+# Comma-separated list, e.g. https://my-app.vercel.app — defaults to * (all origins)
+CORS_ORIGINS: list[str] = _parse_cors_origins(_env_or_secret("CORS_ORIGINS"))

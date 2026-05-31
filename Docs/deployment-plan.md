@@ -1,32 +1,45 @@
-# Deployment Plan — Streamlit Community Cloud
+# Deployment Plan — Railway (Backend) + Vercel (Frontend)
 
 > **Zomato AI Restaurant Recommendation System**  
-> Deploy the Streamlit UI (`src/ui/app.py`) for fellowship demos and public sharing.
+> Deploy the **FastAPI backend** on [Railway](https://railway.app) and the **React + Vite frontend** on [Vercel](https://vercel.com).
 
 ---
 
 ## Overview
 
+| Layer | Platform | Source | Public URL |
+|-------|----------|--------|------------|
+| **Backend API** | Railway | `src/api/server.py` | `https://<your-service>.up.railway.app` |
+| **Frontend UI** | Vercel | `frontend/` (React + Vite) | `https://<your-app>.vercel.app` |
+
 | Item | Value |
 |------|-------|
-| **Target platform** | [Streamlit Community Cloud](https://streamlit.io/cloud) |
-| **App entry point** | `streamlit_app.py` (Cloud default) or `src/ui/app.py` |
-| **Python version** | 3.10+ (recommended: **3.12**, matches `Dockerfile`) |
-| **Dependencies** | Root `requirements.txt` |
-| **Required secret** | `GROQ_API_KEY` |
-| **Optional secrets** | `GROQ_MODEL`, `HF_DATASET_ID`, `DATA_CACHE_PATH`, etc. |
+| **Backend entry point** | `uvicorn src.api.server:app` |
+| **Frontend entry point** | `frontend/src/App.tsx` (built to `frontend/dist/`) |
+| **Python version** | 3.12 (recommended) |
+| **Node version** | 20+ |
+| **Required backend secret** | `GROQ_API_KEY` |
+| **Required frontend env** | `VITE_API_BASE_URL` → Railway backend URL |
 
-This deployment covers the **Streamlit UI only**. The React frontend (`frontend/`) and FastAPI server (`src/api/server.py`) are separate and are **not** deployed by this plan.
+The **Streamlit UI** (`src/ui/app.py`) is optional for local demos only and is **not** part of this deployment path.
 
 ```mermaid
 flowchart LR
-    User[User browser] --> SC[Streamlit Cloud]
-    SC --> App[src/ui/app.py]
-    App --> Store[Restaurant store]
+    User[User browser] --> Vercel[Vercel — React UI]
+    Vercel -->|HTTPS REST| Railway[Railway — FastAPI]
+    Railway --> Store[Restaurant store]
     Store --> Cache[data/cache.parquet]
     Store --> HF[Hugging Face dataset]
-    App --> Groq[Groq API]
+    Railway --> Groq[Groq API]
 ```
+
+### API endpoints (backend)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | Health check + restaurant count |
+| `GET` | `/locations` | Cities and localities for the form |
+| `POST` | `/recommendations` | Filter + Groq ranking |
 
 ---
 
@@ -34,20 +47,29 @@ flowchart LR
 
 Before deploying, confirm:
 
-1. **GitHub repository** — code pushed to GitHub (public repo for free Community Cloud tier, or private with Streamlit Cloud access).
-2. **Streamlit Cloud account** — sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub.
-3. **Groq API key** — create at [console.groq.com](https://console.groq.com) (free tier is sufficient for demos).
-4. **Local smoke test passes**:
+1. **GitHub repository** — code pushed (e.g. [prathammm16/ZOMATO-MILESTONE](https://github.com/prathammm16/ZOMATO-MILESTONE)).
+2. **Railway account** — [railway.app](https://railway.app) (GitHub login).
+3. **Vercel account** — [vercel.com](https://vercel.com) (GitHub login).
+4. **Groq API key** — [console.groq.com](https://console.groq.com) (free tier works for demos).
+5. **Local smoke test passes**:
 
    ```bash
+   # Terminal 1 — backend
    pip install -r requirements.txt
    copy .env.example .env          # Windows
    # cp .env.example .env          # macOS/Linux
    # Add GROQ_API_KEY to .env
-   streamlit run src/ui/app.py
+   uvicorn src.api.server:app --host 127.0.0.1 --port 8000 --reload
+
+   # Terminal 2 — frontend
+   cd frontend
+   npm install
+   set VITE_API_BASE_URL=http://127.0.0.1:8000   # Windows CMD
+   # export VITE_API_BASE_URL=http://127.0.0.1:8000   # macOS/Linux
+   npm run dev
    ```
 
-5. **Tests pass** (no network):
+6. **Tests pass** (no network):
 
    ```bash
    python -m pytest -v -m "not integration"
@@ -60,118 +82,235 @@ Before deploying, confirm:
 | Check | Action |
 |-------|--------|
 | No secrets in repo | `.env` is gitignored; only `.env.example` is committed |
-| `requirements.txt` at repo root | Already present — Streamlit Cloud reads this automatically |
-| Entry point path | Set to `src/ui/app.py` in Streamlit Cloud app settings |
-| Dataset strategy | First deploy downloads ~574 MB from Hugging Face (see § Data & cold starts) |
-| Demo location | Use **Bangalore** — dataset is Bangalore-centric (see README) |
+| `requirements.txt` at repo root | Railway installs Python deps from here |
+| Backend CORS | `src/api/server.py` allows all origins (`*`) — works with Vercel |
+| Deploy backend **first** | Frontend needs the Railway URL for `VITE_API_BASE_URL` |
+| Demo location | Use **Bangalore** — dataset is Bangalore-centric |
+| First cold start | HF download ~574 MB on Railway startup (see § Data & cold starts) |
 
 ---
 
 ## Step 1 — Push code to GitHub
 
-1. Initialize git (if not already):
+If not already done:
 
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit — Zomato AI milestone"
-   ```
+```bash
+git remote add origin https://github.com/<your-username>/ZOMATO-MILESTONE.git
+git branch -M main
+git push -u origin main
+```
 
-2. Create a remote repository on GitHub and push:
+Verify these paths exist on the remote:
 
-   ```bash
-   git remote add origin https://github.com/<your-username>/<your-repo>.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-3. Verify these paths exist on the remote:
-   - `requirements.txt`
-   - `config/`
-   - `src/`
-   - `src/ui/app.py`
+- `requirements.txt`
+- `config/`
+- `src/api/server.py`
+- `frontend/package.json`
+- `frontend/src/App.tsx`
 
 > **Do not commit** `.env`, `data/cache.parquet`, or `node_modules/`.
 
 ---
 
-## Step 2 — Create the Streamlit Cloud app
+## Step 2 — Deploy backend on Railway
 
-1. Go to [share.streamlit.io](https://share.streamlit.io) → **Create app**.
-2. Select:
-   - **Repository:** your GitHub repo
-   - **Branch:** `main` (or your default branch)
-   - **Main file path:** `streamlit_app.py` (or `src/ui/app.py`)
-3. Click **Advanced settings** (optional but recommended):
-   - **Python version:** `3.12`
-4. Click **Deploy**.
+### 2.1 Create the service
 
-The first build installs dependencies from `requirements.txt` and starts Streamlit on port 8501.
+1. Open [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo**.
+2. Select **`ZOMATO-MILESTONE`**.
+3. Railway creates a service from the repo root (do **not** set root directory to `frontend/`).
 
----
+### 2.2 Configure build & start
 
-## Step 3 — Configure secrets
+In the Railway service → **Settings**:
 
-Streamlit Cloud injects secrets as environment variables. The app loads them via `config/settings.py` (`python-dotenv` + `os.getenv`), so **no code changes are required** when secrets are set in the dashboard.
+| Setting | Value |
+|---------|-------|
+| **Root Directory** | *(leave empty — repo root)* |
+| **Start Command** | `uvicorn src.api.server:app --host 0.0.0.0 --port $PORT` |
 
-1. In Streamlit Cloud → your app → **Settings** → **Secrets**.
-2. Add a TOML block:
+Add a **variable** (or use Railway’s default):
 
-   ```toml
-   GROQ_API_KEY = "gsk_xxxxxxxxxxxxxxxx"
-   GROQ_MODEL = "llama-3.3-70b-versatile"
-   GROQ_TIMEOUT_SECONDS = 30
-   GROQ_TEMPERATURE = 0.3
-   MAX_CANDIDATES_TO_LLM = 20
-   TOP_RECOMMENDATIONS = 5
-   ```
+| Variable | Value |
+|----------|-------|
+| `PYTHONPATH` | `.` |
 
-3. Save secrets — the app redeploys automatically.
+Optional `railway.toml` at repo root (commit if you want config in git):
 
-| Secret | Required | Default if omitted |
-|--------|----------|------------------|
-| `GROQ_API_KEY` | **Yes** (for AI ranking) | App shows warning; filter-only fallback may still run |
+```toml
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "uvicorn src.api.server:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+```
+
+### 2.3 Environment variables
+
+In Railway → **Variables**, add:
+
+| Variable | Required | Example / default |
+|----------|----------|-------------------|
+| `GROQ_API_KEY` | **Yes** | `gsk_xxxxxxxxxxxxxxxx` |
 | `GROQ_MODEL` | No | `llama-3.3-70b-versatile` |
+| `GROQ_TIMEOUT_SECONDS` | No | `30` |
+| `GROQ_TEMPERATURE` | No | `0.3` |
 | `HF_DATASET_ID` | No | `ManikaSaini/zomato-restaurant-recommendation` |
 | `DATA_CACHE_PATH` | No | `data/cache.parquet` |
 | `FORCE_REFRESH` | No | `false` |
+| `MAX_CANDIDATES_TO_LLM` | No | `20` |
+| `TOP_RECOMMENDATIONS` | No | `5` |
+| `PYTHONPATH` | Yes | `.` |
 
 Reference: [.env.example](../.env.example)
 
+### 2.4 Generate public URL
+
+1. Railway service → **Settings** → **Networking** → **Generate Domain**.
+2. Copy the URL, e.g. `https://zomato-api-production.up.railway.app`.
+3. Test:
+
+   ```bash
+   curl https://<your-railway-domain>/health
+   ```
+
+   Expected:
+
+   ```json
+   {"status":"ok","restaurants":40000}
+   ```
+
+   *(Restaurant count varies; `status: ok` confirms the API is live.)*
+
+> **Note:** First deploy may take **2–5+ minutes** while the Hugging Face dataset downloads and the store loads on startup.
+
+### 2.5 Optional — persist dataset cache on Railway
+
+Without a volume, each redeploy re-downloads the dataset. To speed restarts:
+
+1. Railway → service → **Volumes** → add a volume mounted at `/app/data`.
+2. Set `DATA_CACHE_PATH=data/cache.parquet` (default).
+
 ---
 
-## Step 4 — Data & cold starts
+## Step 3 — Deploy frontend on Vercel
 
-On first run, the app calls `load_restaurant_store()` (cached with `@st.cache_resource`):
+Deploy **after** the Railway backend URL is known.
 
-1. If `data/cache.parquet` is missing, it downloads the Hugging Face dataset (~574 MB).
-2. Normalizes and writes cache under `data/cache.parquet`.
-3. Subsequent runs in the **same container session** reuse the in-memory store.
+### 3.1 Import project
+
+1. Open [vercel.com/new](https://vercel.com/new) → **Import** your GitHub repo.
+2. Configure the project:
+
+| Setting | Value |
+|---------|-------|
+| **Framework Preset** | Vite |
+| **Root Directory** | `frontend` |
+| **Build Command** | `npm run build` |
+| **Output Directory** | `dist` |
+| **Install Command** | `npm install` |
+
+### 3.2 Environment variables
+
+Add before the first production deploy:
+
+| Variable | Value |
+|----------|-------|
+| `VITE_API_BASE_URL` | `https://<your-railway-domain>` *(no trailing slash)* |
+
+Example:
+
+```
+VITE_API_BASE_URL=https://zomato-api-production.up.railway.app
+```
+
+> **Important:** Vite bakes `VITE_*` variables in at **build time**. If you change the Railway URL later, update this variable on Vercel and **redeploy** the frontend.
+
+### 3.3 Deploy
+
+Click **Deploy**. Vercel builds `frontend/` and serves static files from `dist/`.
+
+Optional `frontend/vercel.json` for SPA routing (add if client-side routes are added later):
+
+```json
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
+```
+
+---
+
+## Step 4 — Connect frontend to backend
+
+End-to-end flow:
+
+1. User opens the **Vercel URL**.
+2. React app reads `import.meta.env.VITE_API_BASE_URL` (see `frontend/src/App.tsx`).
+3. Browser calls Railway:
+   - `GET /health` and `GET /locations` on load
+   - `POST /recommendations` on form submit
+
+**Deploy order:**
+
+```text
+GitHub push → Railway (backend) → copy Railway URL → Vercel env + deploy (frontend)
+```
+
+If the frontend shows network errors:
+
+- Confirm `VITE_API_BASE_URL` matches the Railway domain exactly.
+- Confirm Railway service is running (`/health` returns 200).
+- Redeploy Vercel after any env change.
+
+---
+
+## Step 5 — Data & cold starts (Railway)
+
+On startup, `src/api/server.py` loads the restaurant store:
+
+1. If `data/cache.parquet` is missing → downloads from Hugging Face (~574 MB).
+2. Normalizes and caches to `data/cache.parquet`.
+3. Serves requests once `_get_store()` completes.
 
 | Strategy | Pros | Cons |
 |----------|------|------|
-| **Default (HF download on first visit)** | No extra setup | Slow first load (2–5+ min); may hit memory limits |
-| **Pre-built cache in repo** | Fast startup | Large repo; cache is gitignored by design |
-| **Docker + volume mount** | Full control | Not Streamlit Cloud; see § Alternative: Docker |
+| **Default (download on deploy)** | No extra setup | Slow first deploy; needs enough RAM |
+| **Railway volume on `/app/data`** | Cache survives redeploys | Small extra cost |
+| **Pre-warm before demo** | Reliable fellowship demo | Manual step |
 
-**Recommendation for Streamlit Cloud:** Accept a slow first load, then rely on `@st.cache_resource` for the session. For fellowship demos, **open the deployed URL once before presenting** to warm the cache.
-
-If the app crashes on startup due to memory, consider:
-- Upgrading Streamlit Cloud plan (if available), or
-- Using Docker on a VM with more RAM (see below).
+**Recommendation:** Hit `/health` once after deploy and wait until `restaurants` > 0 before sharing the Vercel link.
 
 ---
 
-## Step 5 — Post-deployment verification
+## Step 6 — Post-deployment verification
 
-Use the same scenarios as [phase5-ui-test-plan.md](phase5-ui-test-plan.md):
+### Backend (Railway)
 
 | # | Test | Expected |
 |---|------|----------|
-| 1 | Open deployed URL | Sidebar shows restaurant count after dataset load |
-| 2 | Bangalore + Medium + North Indian → **Get recommendations** | Cards with name, cuisine, rating, cost, AI explanation |
-| 3 | Invalid combo (e.g. French + rating 5.0) | Empty-state message, no crash |
-| 4 | Missing/invalid Groq key | Clear error banner; graceful fallback where implemented |
+| 1 | `GET /health` | `{"status":"ok","restaurants":...}` |
+| 2 | `GET /locations` | JSON with `cities` and `localities` arrays |
+| 3 | `POST /recommendations` with Bangalore + medium + Italian | JSON with `recommendations` array |
+
+Example:
+
+```bash
+curl -X POST https://<your-railway-domain>/recommendations \
+  -H "Content-Type: application/json" \
+  -d "{\"location\":\"Bangalore\",\"budget\":\"medium\",\"cuisine\":\"Italian\",\"min_rating\":3.5,\"num_recommendations\":3}"
+```
+
+### Frontend (Vercel)
+
+| # | Test | Expected |
+|---|------|----------|
+| 1 | Open Vercel URL | Page loads; restaurant count in header/stats |
+| 2 | Bangalore + Medium + North Indian → submit | Recommendation cards with AI explanations |
+| 3 | Strict filters (French + rating 5.0) | Empty state, no crash |
+| 4 | Browser DevTools → Network | Requests go to Railway domain, not `127.0.0.1` |
 
 **Demo script for evaluators:**
 
@@ -184,66 +323,40 @@ Use the same scenarios as [phase5-ui-test-plan.md](phase5-ui-test-plan.md):
 
 ---
 
-## Repository layout (what Streamlit Cloud needs)
+## Repository layout
 
 ```
 ZOMATO-MILESTONE/
-├── requirements.txt       ← pip install (required)
-├── config/
-│   └── settings.py        ← reads env / secrets
-├── src/
-│   ├── ui/app.py          ← main file path in Cloud settings
-│   ├── api/orchestrator.py
-│   ├── data/
-│   ├── filtering/
-│   └── llm/
-└── data/                  ← created at runtime (cache.parquet)
+├── requirements.txt          ← Railway: pip install
+├── config/settings.py        ← reads env vars
+├── src/api/server.py         ← FastAPI app (Railway)
+├── src/api/orchestrator.py
+├── src/data/                 ← ingestion + store
+├── src/llm/                  ← Groq integration
+├── frontend/
+│   ├── package.json          ← Vercel: npm install
+│   ├── vite.config.ts
+│   ├── src/App.tsx           ← uses VITE_API_BASE_URL
+│   └── dist/                 ← Vercel output (generated)
+└── data/                     ← runtime cache (Railway volume optional)
 ```
-
-No `packages.txt` is required unless you add system-level dependencies later.
 
 ---
 
-## Optional — Streamlit config
-
-For local parity with Cloud (wide layout, theme), add `.streamlit/config.toml` at the repo root:
-
-```toml
-[server]
-headless = true
-enableCORS = false
-enableXsrfProtection = true
-
-[browser]
-gatherUsageStats = false
-
-[theme]
-base = "dark"
-primaryColor = "#ff4a5f"
-backgroundColor = "#07090d"
-secondaryBackgroundColor = "#14151f"
-textColor = "#f7e7e4"
-```
-
-Commit this file if you want consistent theming in Cloud and locally.
-
----
-
-## Alternative — Docker (self-hosted)
-
-If Streamlit Cloud limits (memory, cold start, or private networking) block you, use the included `Dockerfile`:
+## Local development (matches production)
 
 ```bash
-docker build -t zomato-ai .
-docker run -p 8501:8501 \
-  -e GROQ_API_KEY=your_key \
-  -v ./data:/app/data \
-  zomato-ai
+# Backend
+uvicorn src.api.server:app --host 127.0.0.1 --port 8000 --reload
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+set VITE_API_BASE_URL=http://127.0.0.1:8000    # Windows CMD
+npm run dev
 ```
 
-Mount `./data` so `cache.parquet` persists across container restarts.
-
-Deploy the container on any host that supports Docker (Railway, Render, Fly.io, AWS ECS, etc.) with port **8501** exposed.
+Or use Makefile shortcuts: `make api-server`, `make react-vite`.
 
 ---
 
@@ -251,31 +364,42 @@ Deploy the container on any host that supports Docker (Railway, Render, Fly.io, 
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `ModuleNotFoundError: config` or `src` | Wrong working directory | Main file must be `src/ui/app.py`; app adds project root to `sys.path` |
-| App stuck on “Loading restaurant dataset…” | HF download in progress or OOM | Wait; warm app before demo; check Cloud logs |
-| `GROQ_API_KEY is not set` | Secret missing or typo | Add `GROQ_API_KEY` in Streamlit Secrets; redeploy |
-| Groq 429 / rate limit | Free tier limits | Retry; reduce demo frequency; fallback ranking still applies |
+| Railway build fails | Missing `requirements.txt` or wrong root dir | Deploy from repo root, not `frontend/` |
+| Railway crash on startup | OOM during HF download | Add volume; upgrade plan; wait and retry |
+| `ModuleNotFoundError: src` | `PYTHONPATH` not set | Set `PYTHONPATH=.` on Railway |
+| Vercel UI loads but API errors | Wrong or missing `VITE_API_BASE_URL` | Set env to Railway URL; redeploy Vercel |
+| CORS error in browser | Backend not reachable or wrong URL | Check Railway domain; CORS is `*` in server |
+| Frontend calls `127.0.0.1:8000` in prod | `VITE_API_BASE_URL` not set at build | Add env on Vercel → **Redeploy** |
+| `GROQ_API_KEY is not set` | Missing Railway variable | Add `GROQ_API_KEY` in Railway Variables |
+| Groq 429 / rate limit | Free tier limits | Retry; fallback ranking still applies |
 | Empty recommendations | Filters too strict | Use Bangalore + medium + common cuisine |
-| Build fails on `pip install` | Dependency conflict | Pin versions in `requirements.txt`; set Python 3.12 |
+| `/health` timeout on first deploy | Dataset still loading | Wait 2–5 min; check Railway logs |
 
-**Logs:** Streamlit Cloud → app → **Manage app** → **Logs**.
+**Logs:**
+
+- Railway → service → **Deployments** → **View Logs**
+- Vercel → project → **Deployments** → **Build Logs** / **Runtime Logs**
 
 ---
 
 ## Security notes
 
 - Never commit `.env` or API keys (see [.gitignore](../.gitignore)).
+- Store `GROQ_API_KEY` only in **Railway Variables**, not in Vercel (frontend does not need it).
 - Rotate `GROQ_API_KEY` if exposed.
-- Streamlit Secrets are encrypted at rest on Streamlit Cloud.
+- For production hardening, restrict CORS in `src/api/server.py` to your Vercel domain instead of `*`.
 - Dataset usage is educational / fellowship milestone only — see README attribution.
 
 ---
 
 ## Rollback & updates
 
-1. Push a fix to GitHub on the deployed branch.
-2. Streamlit Cloud auto-rebuilds on each push.
-3. To roll back: revert the commit on GitHub or redeploy from a previous commit in the Cloud UI.
+| Platform | How to update |
+|----------|----------------|
+| **Railway** | Push to GitHub → auto-redeploy; or rollback in Deployments tab |
+| **Vercel** | Push to GitHub → auto-redeploy; or promote a previous deployment |
+
+If the Railway URL changes, update `VITE_API_BASE_URL` on Vercel and redeploy the frontend.
 
 ---
 
@@ -283,11 +407,23 @@ Deploy the container on any host that supports Docker (Railway, Render, Fly.io, 
 
 Deployment is complete when:
 
-- [ ] Public (or team) URL loads without import errors
-- [ ] Restaurant count appears in the sidebar
+- [ ] Railway `/health` returns `status: ok` with restaurant count > 0
+- [ ] Vercel app loads and shows live data from Railway (not localhost)
 - [ ] Bangalore + medium + Italian returns ≥1 recommendation with Groq explanation
-- [ ] `GROQ_API_KEY` is only in Streamlit Secrets, not in the repo
+- [ ] `GROQ_API_KEY` exists only in Railway Variables, not in the repo
 - [ ] Fellowship demo flow matches [phase6-delivery.md](phase6-delivery.md)
+
+---
+
+## Optional — Streamlit UI (local demo only)
+
+The Streamlit app (`streamlit_app.py` / `src/ui/app.py`) remains available for local demos:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+For Streamlit Community Cloud deployment, see `.streamlit/config.toml` and `.streamlit/secrets.toml.example`. That path is separate from Railway + Vercel.
 
 ---
 

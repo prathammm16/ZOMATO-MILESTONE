@@ -44,6 +44,7 @@ type LocationsResponse = {
 type HealthResponse = {
   status: string;
   restaurants: number;
+  detail?: string;
 };
 
 type PreferenceForm = {
@@ -94,24 +95,46 @@ function App() {
   const [favorites, setFavorites] = useState<Record<string, Recommendation>>({});
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
     async function loadMetadata() {
       try {
-        const [healthRes, locationsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/health`),
-          fetch(`${API_BASE_URL}/locations`),
-        ]);
-
-        if (!healthRes.ok || !locationsRes.ok) {
+        const healthRes = await fetch(`${API_BASE_URL}/health`);
+        if (!healthRes.ok) {
           throw new Error("The recommendation API is not responding.");
         }
 
         const health = (await healthRes.json()) as HealthResponse;
+
+        if (health.status === "loading") {
+          if (!cancelled) {
+            setMetadataError("Backend is loading the restaurant dataset. Retrying…");
+            retryTimer = setTimeout(loadMetadata, 5000);
+          }
+          return;
+        }
+
+        if (health.status === "error") {
+          throw new Error(health.detail ?? "The recommendation API failed to load data.");
+        }
+
+        const locationsRes = await fetch(`${API_BASE_URL}/locations`);
+        if (!locationsRes.ok) {
+          throw new Error("The recommendation API is not responding.");
+        }
+
         const locationPayload = (await locationsRes.json()) as LocationsResponse;
         const combinedLocations = [
           ...locationPayload.cities,
           ...locationPayload.localities.filter((loc) => !locationPayload.cities.includes(loc)),
         ];
 
+        if (cancelled) {
+          return;
+        }
+
+        setMetadataError(null);
         setRestaurantsLoaded(health.restaurants);
         setLocations(combinedLocations.length ? combinedLocations : ["Bangalore"]);
 
@@ -126,11 +149,20 @@ function App() {
           return { ...current, location: preferred };
         });
       } catch (error) {
-        setMetadataError(error instanceof Error ? error.message : "Could not load API metadata.");
+        if (!cancelled) {
+          setMetadataError(error instanceof Error ? error.message : "Could not load API metadata.");
+        }
       }
     }
 
     loadMetadata();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
   }, []);
 
   const stats = useMemo(() => {

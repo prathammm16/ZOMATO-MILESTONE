@@ -1,7 +1,7 @@
 # Zomato AI Restaurant Recommendation System — Makefile
 # Windows: use `make` from Git Bash, or run commands directly from README.
 
-.PHONY: install test test-all demo demo-mock ui react-install react-ui react-vite react-build api api-mock clean
+.PHONY: install test test-all demo demo-mock ui react-install react-ui react-vite react-build api api-mock api-server api-server-railway clean
 
 install:
 	pip install -r requirements.txt
@@ -35,6 +35,9 @@ react-build:
 
 api-server:
 	uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload
+
+api-server-railway:
+	uvicorn src.api.server:app --host 0.0.0.0 --port $${PORT:-8000}
 
 api:
 	python -m src.api --location Bangalore --budget medium
