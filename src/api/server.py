@@ -28,7 +28,10 @@ _store_lock = threading.Lock()
 def _load_store_worker() -> None:
     global _store, _store_error
     try:
-        logger.info("Loading restaurant store...")
+        logger.info(
+            "Loading restaurant store... (HF_MAX_ROWS=%s)",
+            settings.HF_MAX_ROWS if settings.HF_MAX_ROWS is not None else "all",
+        )
         loaded = load_restaurant_store()
         with _store_lock:
             _store = loaded

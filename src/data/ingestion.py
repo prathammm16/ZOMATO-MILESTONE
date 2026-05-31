@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Iterator
@@ -291,22 +292,47 @@ def normalize_rows(
     return kept, stats
 
 
+def _configure_hf_hub() -> None:
+    token = settings.HF_TOKEN
+    if not token:
+        return
+    os.environ.setdefault("HF_TOKEN", token)
+    os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", token)
+
+
+def iter_raw_dataset(
+    dataset_id: str | None = None,
+    *,
+    max_rows: int | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Stream rows from Hugging Face without loading the full split into memory."""
+    _configure_hf_hub()
+    ds_id = dataset_id or settings.HF_DATASET_ID
+    row_limit = max_rows if max_rows is not None else settings.HF_MAX_ROWS
+    logger.info(
+        "Streaming dataset from Hugging Face: %s (max_rows=%s)",
+        ds_id,
+        row_limit if row_limit is not None else "all",
+    )
+    stream = load_dataset(ds_id, split="train", streaming=True)
+    if row_limit is not None:
+        stream = stream.take(row_limit)
+    for row in stream:
+        yield dict(row)
+
+
 def load_raw_dataset(
     dataset_id: str | None = None,
     *,
     max_rows: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Load rows from Hugging Face (train split)."""
-    ds_id = dataset_id or settings.HF_DATASET_ID
-    split = f"train[:{max_rows}]" if max_rows is not None else "train"
-    logger.info("Loading dataset from Hugging Face: %s (split=%s)", ds_id, split)
-    dataset = load_dataset(ds_id, split=split)
-    return [dict(row) for row in dataset]
+    """Load rows from Hugging Face (train split) into a list — prefer iter_raw_dataset."""
+    return list(iter_raw_dataset(dataset_id, max_rows=max_rows))
 
 
 def load_from_huggingface(dataset_id: str | None = None) -> tuple[list[Restaurant], IngestionStats]:
-    rows = load_raw_dataset(dataset_id)
-    return normalize_rows(iter(rows))
+    rows = iter_raw_dataset(dataset_id, max_rows=settings.HF_MAX_ROWS)
+    return normalize_rows(rows)
 
 
 def save_cache(restaurants: list[Restaurant], path: Path | None = None) -> Path:

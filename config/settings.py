@@ -29,6 +29,27 @@ def _env_or_secret(key: str, default: str | None = None) -> str | None:
 HF_DATASET_ID: str = _env_or_secret(
     "HF_DATASET_ID", "ManikaSaini/zomato-restaurant-recommendation"
 ) or "ManikaSaini/zomato-restaurant-recommendation"
+HF_TOKEN: str | None = _env_or_secret("HF_TOKEN") or _env_or_secret("HUGGING_FACE_HUB_TOKEN")
+
+
+def _parse_optional_int(key: str) -> int | None:
+    raw = _env_or_secret(key)
+    if not raw:
+        return None
+    return int(raw)
+
+
+def _default_hf_max_rows() -> int | None:
+    configured = _parse_optional_int("HF_MAX_ROWS")
+    if configured is not None:
+        return configured
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+        # Full HF ingest (~51k rows) often OOMs on small Railway instances.
+        return 20_000
+    return None
+
+
+HF_MAX_ROWS: int | None = _default_hf_max_rows()
 DATA_CACHE_PATH: Path = PROJECT_ROOT / (
     _env_or_secret("DATA_CACHE_PATH", "data/cache.parquet") or "data/cache.parquet"
 )

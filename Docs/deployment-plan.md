@@ -155,6 +155,8 @@ In Railway → **Variables**, add:
 | Variable | Required | Example / default |
 |----------|----------|-------------------|
 | `GROQ_API_KEY` | **Yes** | `gsk_xxxxxxxxxxxxxxxx` |
+| `HF_TOKEN` | Recommended | Hugging Face token — faster downloads, fewer rate limits |
+| `HF_MAX_ROWS` | No | `20000` on Railway auto-default; set `0` or empty locally for full dataset |
 | `GROQ_MODEL` | No | `llama-3.3-70b-versatile` |
 | `GROQ_TIMEOUT_SECONDS` | No | `30` |
 | `GROQ_TEMPERATURE` | No | `0.3` |
@@ -365,7 +367,8 @@ Or use Makefile shortcuts: `make api-server`, `make react-vite`.
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Railway build fails | Missing `requirements.txt` or wrong root dir | Deploy from repo root, not `frontend/` |
-| Railway crash on startup | OOM during HF download | Add volume; upgrade plan; wait and retry |
+| Railway crash after 2–3 min (HF logs) | OOM loading full dataset | Auto-limited to 20k rows on Railway; add `HF_TOKEN`; mount `/app/data` volume |
+| Railway crash on startup | OOM during HF download | Add volume; set `HF_MAX_ROWS=20000`; add `HF_TOKEN`; upgrade plan |
 | `ModuleNotFoundError: src` | `PYTHONPATH` not set | Set `PYTHONPATH=.` on Railway |
 | `'$PORT' is not a valid integer` | Shell did not expand `$PORT` | Use `python scripts/railway_start.py` as start command |
 | Vercel UI loads but API errors | Wrong or missing `VITE_API_BASE_URL` | Set env to Railway URL; redeploy Vercel |
